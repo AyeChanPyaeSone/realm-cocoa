@@ -574,8 +574,8 @@ RLM_ARRAY_TYPE(MigrationObject);
     RLMRealmConfiguration *config = [self config];
     config.readOnly = true;
     RLMRealm *realm = [RLMRealm realmWithConfiguration:config error:nil];
-    objectSchema = realm.schema[@"StringObject"];
-//    XCTAssertTrue(objectSchema.table->has_search_index([objectSchema.properties[0] column]));
+    auto& info = realm->_info[@"StringObject"];
+    XCTAssertTrue(info.table()->has_search_index(info.tableColumn(objectSchema.properties[0].name)));
 }
 
 - (void)testRearrangeProperties {
