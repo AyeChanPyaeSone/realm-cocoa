@@ -30,6 +30,7 @@
 #import "RLMSchema_Private.h"
 #import "RLMSwiftSupport.h"
 #import "RLMUtil.hpp"
+#import "RLMHandover_Private.hpp"
 
 using namespace realm;
 
@@ -442,6 +443,27 @@ Class RLMObjectUtilClass(BOOL isSwift) {
 
 + (NSArray *)requiredPropertiesForClass:(Class)cls {
     return [cls requiredProperties];
+}
+
+@end
+
+@interface RLMObjectBase (Handover) <RLMThreadConfined_Private>
+@end
+
+@implementation RLMObjectBase (Handover)
+
+- (realm::AnyThreadConfined)rlm_handoverData {
+    return AnyThreadConfined(_row);
+}
+
+- (NSString *)rlm_handoverMetadata {
+    return self.objectSchema.className;
+}
+
++ (instancetype)rlm_objectWithHandoverData:(realm::AnyThreadConfined&)data
+                                  metadata:(NSString *)metadata inRealm:(RLMRealm *)realm {
+    RLMObjectSchema *schema = [realm.schema schemaForClassName:metadata];
+    return RLMCreateObjectAccessor(realm, schema, data.row().get_index());
 }
 
 @end

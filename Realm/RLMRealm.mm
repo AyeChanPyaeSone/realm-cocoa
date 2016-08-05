@@ -33,6 +33,7 @@
 #import "RLMRealmUtil.hpp"
 #import "RLMSchema_Private.hpp"
 #import "RLMUpdateChecker.hpp"
+#import "RLMHandover_Private.hpp"
 #import "RLMUtil.hpp"
 
 #include "impl/realm_coordinator.hpp"
@@ -659,6 +660,40 @@ REALM_NOINLINE void RLMRealmTranslateException(NSError **error) {
         *error = localError; // Must set outside pool otherwise will free anyway
     }
     return success;
+}
+
+- (RLMThreadHandover *)exportThreadHandoverWithObjects:(NSArray<id<RLMThreadConfined>> *)objects {
+    return [[RLMThreadHandover alloc] initWithRealm:self objects:objects];
+}
+
+- (void)transactionAsyncWithBlock:(void(^)(RLMRealm *))block {
+    [self transactionAsyncWithObjects:@[] block:^(RLMRealm * _Nonnull realm,
+                                                  NSArray<id<RLMThreadConfined>> * _Nonnull objects) {
+        REALM_ASSERT_DEBUG(objects.count == 0);
+        block(realm);
+    }];
+}
+
+- (void)transactionAsyncWithObject:(id<RLMThreadConfined>)object
+                             block:(void(^)(RLMRealm *, id<RLMThreadConfined>))block {
+    [self transactionAsyncWithObjects:@[object] block:^(RLMRealm * _Nonnull realm,
+                                                        NSArray<id<RLMThreadConfined>> * _Nonnull objects) {
+        REALM_ASSERT_DEBUG(objects.count == 1);
+        block(realm, objects[0]);
+    }];
+}
+
+- (void)transactionAsyncWithObjects:(NSArray<id<RLMThreadConfined>> *)objects
+                              block:(void(^)(RLMRealm *, NSArray<id<RLMThreadConfined>> *))block {
+    RLMThreadHandover *package = [self exportThreadHandoverWithObjects:objects];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+        @autoreleasepool {
+            RLMThreadImport *import = [package importOnCurrentThreadWithError:nil];
+            [import.realm transactionWithBlock:^{
+                block(import.realm, import.objects);
+            }];
+        }
+    });
 }
 
 - (RLMObject *)createObject:(NSString *)className withValue:(id)value {

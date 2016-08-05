@@ -112,6 +112,8 @@ public final class Realm {
     - parameter block: The block to be executed inside a write transaction.
 
     - throws: An NSError if the transaction could not be written.
+     
+    - seealso: `asyncWrite(handingOver:_:)`, for asynchronously performing write transactions.
     */
     public func write(block: @noescape () -> Void) throws {
         try rlmRealm.transaction(block)
@@ -583,6 +585,92 @@ public final class Realm {
         try rlmRealm.writeCopy(to: url, encryptionKey: encryptionKey)
     }
 
+    // MARK: Handover
+
+    /**
+     Creates a `ThreadHandover` from the passed in objects that can be safely imported on a separate thread.
+
+     Used to pass objects between threads in a thread-safe manner.
+
+     - warning: Note that the returned `ThreadHandover` must be imported at most once, and that the current version
+               of the Realm will remain pinned until this package is imported or deallocated.
+
+     - parameter objects: The objects to pass between threads.
+     - returns: A package that can be imported on a separate thread.
+
+     - seealso: `ThreadHandover`
+     */
+    public func exportThreadHandover<T: ThreadConfined>(containing objects: [T]) -> ThreadHandover<T> {
+        return ThreadHandover(realm: self, objects: objects)
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+     Use `asyncWrite(handingOver:_:)` if you'd like to pass objects into the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+     Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `asyncWrite(handingOver:_:)`, to pass objects into the block.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+     */
+    public func asyncWrite(_ block: (Realm) -> ()) {
+        asyncWrite(handingOver: [] as [ThreadConfined]) { realm, _ in
+            block(realm)
+        }
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+     The object passed as argument to the function will be made available as an argument of the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+     Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+     - parameter object: The `RLMThreadConfined` object to copy into the `block`.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+     */
+    public func asyncWrite<O: ThreadConfined>(handingOver object: O, execute block: (Realm, O) -> ()) {
+        asyncWrite(handingOver: [object]) { realm, singleObjectArray in
+            block(realm, singleObjectArray[0])
+        }
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+     The object passed as argument to the function will be made available as an argument of the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+     Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+     - parameter objects: The `RLMThreadConfined` objects to copy into the `block`.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+     */
+    public func asyncWrite<O: ThreadConfined>(handingOver objects: [O], execute block: (Realm, [O]) -> ()) {
+        let package = exportThreadHandover(containing: objects)
+        DispatchQueue.global().async {
+            autoreleasepool {
+                let (realm, objects) = try! package.importOnCurrentThread()
+                block(realm, objects)
+            }
+        }
+    }
+
     // MARK: Internal
 
     internal var rlmRealm: RLMRealm
@@ -629,7 +717,6 @@ public enum Notification: String {
 
 /// Closure to run when the data in a Realm was modified.
 public typealias NotificationBlock = (notification: Notification, realm: Realm) -> Void
-
 
 // MARK: Unavailable
 
@@ -769,6 +856,8 @@ public final class Realm {
 
      - throws: An `NSError` if the transaction could not be completed successfully.
                If `block` throws, the propagated `ErrorType`.
+     
+     - seealso: `asyncWrite(handingOver:_:)`, for asynchronously performing write transactions.
      */
     public func write(@noescape block: (() throws -> Void)) throws {
         beginWrite()
@@ -1239,6 +1328,94 @@ public final class Realm {
      */
     public func writeCopyToURL(fileURL: NSURL, encryptionKey: NSData? = nil) throws {
         try rlmRealm.writeCopyToURL(fileURL, encryptionKey: encryptionKey)
+    }
+
+    // MARK: Handover
+
+    /**
+     Creates a `ThreadHandover` from the passed in objects that can be safely imported on a separate thread.
+
+     Used to pass objects between threads in a thread-safe manner.
+     
+     - warning: Note that the returned `ThreadHandover` must be imported at most once, and that the current version
+                of the Realm will remain pinned until this package is imported or deallocated.
+
+     - parameter objects: The objects to pass between threads.
+     - returns: A package that can be imported on a separate thread.
+
+     - seealso: `ThreadHandover`
+     */
+    public func exportThreadHandover<T: ThreadConfined>(containing objects: [T]) -> ThreadHandover<T> {
+        return ThreadHandover(realm: self, objects: objects)
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+                Use `asyncWrite(handingOver:_:)` if you'd like to pass objects into the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+                Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `asyncWrite(handingOver:_:)`, to pass objects into the block.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+    */
+    public func asyncWrite(block: (Realm) -> ()) {
+        asyncWrite(handingOver: [] as [ThreadConfined]) { realm, _ in
+            block(realm)
+        }
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+                The object passed as argument to the function will be made available as an argument of the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+                Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+     - parameter object: The `RLMThreadConfined` object to copy into the `block`.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+     */
+    public func asyncWrite<O: ThreadConfined>(handingOver object: O, _ block: (Realm, O) -> ()) {
+        asyncWrite(handingOver: [object]) { realm, objects in
+            block(realm, objects[0])
+        }
+    }
+
+    /**
+     Performs actions contained within the given block inside a write transaction on a background queue.
+
+     - warning: You may not access `RLMThreadConfined` objects from within the block without querying for them again.
+     The object passed as argument to the function will be made available as an argument of the block.
+
+     - warning: Any errors that occur while opening the Realm or committing the transaction cannot be recovered from.
+     Use `exportThreadHandover(containing:)` if you'd like to handle failures.
+
+     - parameter block: The block to be executed inside a write transaction.
+     - parameter objects: The `RLMThreadConfined` objects to copy into the `block`.
+
+     - seealso: `write(_:)`, for synchronous write transactions.
+     - seealso: `exportThreadHandover(containing:)`, to handle errors that occur during handover.
+     */
+    public func asyncWrite<O: ThreadConfined>(handingOver objects: [O], _ block: (Realm, [O]) -> ()) {
+        let package = exportThreadHandover(containing: objects)
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), {
+            autoreleasepool {
+                let (realm, objects) = try! package.importOnCurrentThread()
+                try! realm.write {
+                     block(realm, objects)
+                }
+            }
+        })
     }
 
     // MARK: Internal
